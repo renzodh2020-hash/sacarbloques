@@ -1,0 +1,22 @@
+CROP ROUTE - PASOS RAPIDOS PARA GITHUB
+
+1) Crea un repositorio vacío en GitHub.
+2) Pulsa "Add file" > "Upload files".
+3) Sube TODO el contenido de esta carpeta, incluida la carpeta .github.
+4) Haz Commit changes.
+5) Ve a Actions.
+6) Abre "Build Crop Route".
+7) Pulsa "Run workflow" > "Run workflow".
+8) Espera el check verde.
+9) Abre la ejecución.
+10) Baja hasta Artifacts.
+11) Descarga "CropRoute-1.20.4".
+12) Descomprime: tendrás crop-route-1.0.0.jar.
+13) Pon el JAR + Fabric API en la carpeta mods de Minecraft 1.20.4 Fabric.
+14) Controles:
+    J = grabar / terminar
+    K = selector de rutas
+    O = reproducir / detener
+
+Mientras O está activo:
+W + Sprint + clic izquierdo permanecen presionados.

@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "id": "crop_route",
+  "version": "${version}",
+  "name": "Crop Route",
+  "description": "Graba varias rutas y las reproduce en bucle manteniendo W + Sprint + clic izquierdo.",
+  "authors": [
+    "nakero28"
+  ],
+  "environment": "client",
+  "entrypoints": {
+    "client": [
+      "com.nakero.croproute.CropRouteClient"
+    ]
+  },
+  "depends": {
+    "fabricloader": ">=0.15.11",
+    "minecraft": "~1.20.4",
+    "java": ">=17",
+    "fabric-api": "*"
+  }
+}
