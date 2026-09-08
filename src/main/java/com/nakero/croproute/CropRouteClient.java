@@ -20,109 +20,104 @@ public class CropRouteClient implements ClientModInitializer {
      * CROP ROUTE V2
      * ============================================================
      *
-     * MEJORAS:
+     * - Varias rutas guardadas.
+     * - J = grabar / terminar grabación.
+     * - K = seleccionar ruta.
+     * - O = iniciar / detener ruta.
      *
-     * - Ya NO obliga al jugador a tocar exactamente cada waypoint.
-     * - Sigue segmentos completos de la ruta.
-     * - Detecta cuando sobrepasaste un punto.
-     * - Look-ahead dinámico dependiendo de la velocidad.
-     * - Giro dinámico dependiendo de la velocidad.
-     * - Reinterpola rutas grabadas rápidamente.
-     * - Reduce muchísimo el problema de empezar a dar círculos.
-     * - W + Sprint + clic izquierdo siguen mantenidos cada tick.
+     * Durante reproducción:
+     *
+     * - W permanece presionada.
+     * - Sprint permanece presionado.
+     * - Clic izquierdo permanece presionado.
+     * - La cámara gira automáticamente.
+     *
+     * Mejoras V2:
+     *
+     * - Seguimiento por segmentos.
+     * - No necesita tocar exactamente cada waypoint.
+     * - Look-ahead dinámico.
+     * - Mejor funcionamiento con velocidades altas.
+     * - Reprocesamiento de rutas rápidas.
+     * - Límite máximo de 3 horas por cada inicio con O.
      */
 
-    /*
-     * Distancia mínima recorrida para guardar una muestra mientras grabas.
-     *
-     * Es pequeña porque queremos capturar bien las curvas.
-     */
     private static final double RECORD_MIN_SPACING = 0.08D;
 
-    /*
-     * Después de terminar una grabación, reconstruimos toda la ruta
-     * aproximadamente cada 0.40 bloques.
-     *
-     * Incluso aunque estuvieras volando muy rápido y entre dos ticks
-     * hubiera una separación grande.
-     */
     private static final double RESAMPLE_SPACING = 0.40D;
 
-    /*
-     * Si una ruta vieja tiene puntos separados más de esta distancia,
-     * se optimiza automáticamente cuando la reproduces.
-     */
     private static final double OLD_ROUTE_GAP_LIMIT = 0.80D;
 
     /*
-     * LOOK-AHEAD
-     *
-     * El jugador no mira exactamente al siguiente punto.
-     * Mira varios bloques más adelante.
-     *
-     * Esto hace muchísimo más estable el movimiento rápido.
+     * Look-ahead dinámico.
      */
     private static final double MIN_LOOKAHEAD = 2.0D;
     private static final double MAX_LOOKAHEAD = 8.0D;
-
-    /*
-     * Minecraft usa bloques/tick para la velocidad.
-     *
-     * Cuanto más rápido vamos, más lejos miramos.
-     */
     private static final double LOOKAHEAD_SPEED_MULTIPLIER = 10.0D;
 
     /*
-     * Máximo cambio de yaw por tick.
-     *
-     * Caminando gira suavemente.
-     * Con mucha velocidad puede corregir más rápido.
+     * Velocidad máxima de giro.
      */
     private static final float BASE_MAX_YAW_PER_TICK = 8.0F;
     private static final float MAX_YAW_PER_TICK = 22.0F;
     private static final float YAW_SPEED_MULTIPLIER = 20.0F;
 
     /*
-     * Cantidad máxima de segmentos futuros que puede analizar.
-     *
-     * IMPORTANTE:
-     * solo busca HACIA DELANTE.
-     *
-     * Esto evita que después de sobrepasar un waypoint quiera regresar.
+     * Máximo de segmentos futuros a analizar.
      */
     private static final int MAX_FORWARD_SEARCH_SEGMENTS = 120;
 
     /*
-     * Si quedamos absurdamente lejos de la ruta, permitimos una
-     * recuperación global.
+     * Recuperación extrema si nos alejamos demasiado de la ruta.
      */
     private static final double EMERGENCY_RECOVERY_DISTANCE = 12.0D;
 
+    /*
+     * ============================================================
+     * LÍMITE DE TIEMPO: 3 HORAS
+     * ============================================================
+     *
+     * 3 horas
+     * = 180 minutos
+     * = 10,800 segundos
+     * = 10,800,000 milisegundos
+     */
+    private static final long MAX_ROUTE_TIME_MS =
+            3L * 60L * 60L * 1000L;
+
+    /*
+     * Momento exacto en el que debe finalizar la ruta actual.
+     */
+    private static long routeEndTime = 0L;
+
+    /*
+     * Keybinds.
+     */
     private static KeyBinding recordKey;
     private static KeyBinding routesKey;
     private static KeyBinding playKey;
 
+    /*
+     * Estados.
+     */
     private static boolean recording = false;
     private static boolean playing = false;
 
+    /*
+     * Puntos temporales durante grabación.
+     */
     private static final List<RoutePoint> recordingPoints =
             new ArrayList<>();
 
     private static String recordingDimension = "";
 
     /*
-     * Segmento actual que estamos siguiendo.
-     *
-     * Ejemplo:
-     *
-     * points[20] -------- points[21]
-     *
-     * progressSegment = 20
+     * Segmento actual.
      */
     private static int progressSegment = 0;
 
     /*
-     * Posición dentro del segmento.
+     * Posición dentro del segmento:
      *
      * 0.0 = inicio
      * 0.5 = mitad
@@ -130,11 +125,20 @@ public class CropRouteClient implements ClientModInitializer {
      */
     private static double progressT = 0.0D;
 
+    /*
+     * ============================================================
+     * INICIALIZACIÓN
+     * ============================================================
+     */
+
     @Override
     public void onInitializeClient() {
 
         RouteManager.load();
 
+        /*
+         * J = grabar.
+         */
         recordKey = KeyBindingHelper.registerKeyBinding(
                 new KeyBinding(
                         "key.crop_route.record",
@@ -144,6 +148,9 @@ public class CropRouteClient implements ClientModInitializer {
                 )
         );
 
+        /*
+         * K = rutas guardadas.
+         */
         routesKey = KeyBindingHelper.registerKeyBinding(
                 new KeyBinding(
                         "key.crop_route.routes",
@@ -153,6 +160,9 @@ public class CropRouteClient implements ClientModInitializer {
                 )
         );
 
+        /*
+         * O = iniciar/detener.
+         */
         playKey = KeyBindingHelper.registerKeyBinding(
                 new KeyBinding(
                         "key.crop_route.play",
@@ -167,14 +177,27 @@ public class CropRouteClient implements ClientModInitializer {
         );
     }
 
+    /*
+     * ============================================================
+     * TICK PRINCIPAL
+     * ============================================================
+     */
+
     private void onEndTick(MinecraftClient client) {
 
         /*
-         * Si salimos del mundo, soltamos absolutamente todo.
+         * Si salimos del mundo:
+         *
+         * - detener ruta
+         * - soltar teclas
+         * - cancelar grabación
          */
         if (client.player == null || client.world == null) {
 
-            stopPlayback(client, false);
+            stopPlayback(
+                    client,
+                    false
+            );
 
             recording = false;
             recordingPoints.clear();
@@ -185,19 +208,27 @@ public class CropRouteClient implements ClientModInitializer {
         handleKeys(client);
 
         /*
-         * GRABACIÓN
+         * Continuar grabando.
          */
         if (recording && client.currentScreen == null) {
+
             recordCurrentPosition(client);
         }
 
+        /*
+         * Si no estamos reproduciendo, no hacemos nada más.
+         */
         if (!playing) {
+
             return;
         }
 
         /*
-         * No mantener botones presionados dentro de inventario,
-         * chat, menú, etc.
+         * Si abrimos chat, inventario o menú:
+         *
+         * soltamos temporalmente las teclas.
+         *
+         * El temporizador de 3 horas SIGUE corriendo.
          */
         if (client.currentScreen != null) {
 
@@ -211,14 +242,14 @@ public class CropRouteClient implements ClientModInitializer {
 
     /*
      * ============================================================
-     * TECLAS
+     * CONTROLES
      * ============================================================
      */
 
     private void handleKeys(MinecraftClient client) {
 
         /*
-         * K = abrir rutas.
+         * K = abrir selector.
          */
         while (routesKey.wasPressed()) {
 
@@ -233,18 +264,23 @@ public class CropRouteClient implements ClientModInitializer {
         }
 
         /*
-         * J = grabar / terminar grabación.
+         * J = iniciar/finalizar grabación.
          */
         while (recordKey.wasPressed()) {
 
             if (client.currentScreen != null) {
+
                 continue;
             }
 
             if (!recording) {
 
                 if (playing) {
-                    stopPlayback(client, false);
+
+                    stopPlayback(
+                            client,
+                            false
+                    );
                 }
 
                 startRecording(client);
@@ -256,17 +292,21 @@ public class CropRouteClient implements ClientModInitializer {
         }
 
         /*
-         * O = iniciar / detener ruta.
+         * O = iniciar/detener ruta.
          */
         while (playKey.wasPressed()) {
 
             if (client.currentScreen != null) {
+
                 continue;
             }
 
             if (playing) {
 
-                stopPlayback(client, true);
+                stopPlayback(
+                        client,
+                        true
+                );
 
             } else {
 
@@ -281,7 +321,9 @@ public class CropRouteClient implements ClientModInitializer {
      * ============================================================
      */
 
-    private void startRecording(MinecraftClient client) {
+    private void startRecording(
+            MinecraftClient client
+    ) {
 
         recording = true;
 
@@ -290,9 +332,6 @@ public class CropRouteClient implements ClientModInitializer {
         recordingDimension =
                 currentDimension(client);
 
-        /*
-         * Guardamos inmediatamente la posición inicial.
-         */
         recordingPoints.add(
                 new RoutePoint(
                         client.player.getX(),
@@ -310,31 +349,37 @@ public class CropRouteClient implements ClientModInitializer {
             MinecraftClient client
     ) {
 
-        double x = client.player.getX();
-        double y = client.player.getY();
-        double z = client.player.getZ();
+        double x =
+                client.player.getX();
+
+        double y =
+                client.player.getY();
+
+        double z =
+                client.player.getZ();
 
         RoutePoint last =
                 recordingPoints.get(
                         recordingPoints.size() - 1
                 );
 
-        double dx = x - last.x;
-        double dy = y - last.y;
-        double dz = z - last.z;
+        double dx =
+                x - last.x;
+
+        double dy =
+                y - last.y;
+
+        double dz =
+                z - last.z;
 
         double distanceSquared =
-                dx * dx +
-                dy * dy +
-                dz * dz;
+                dx * dx
+                        + dy * dy
+                        + dz * dz;
 
-        /*
-         * Solo guardamos una nueva muestra si realmente
-         * nos movimos.
-         */
         if (distanceSquared >=
-                RECORD_MIN_SPACING *
-                RECORD_MIN_SPACING) {
+                RECORD_MIN_SPACING
+                        * RECORD_MIN_SPACING) {
 
             recordingPoints.add(
                     new RoutePoint(
@@ -361,9 +406,6 @@ public class CropRouteClient implements ClientModInitializer {
 
         recording = false;
 
-        /*
-         * Guardamos también la última posición.
-         */
         RoutePoint finalPoint =
                 new RoutePoint(
                         client.player.getX(),
@@ -398,21 +440,8 @@ public class CropRouteClient implements ClientModInitializer {
         }
 
         /*
-         * ========================================================
-         * CAMBIO IMPORTANTE
-         * ========================================================
-         *
-         * Antes:
-         *
-         * ●------------●---●----------------●
-         *
-         * dependiendo de la velocidad.
-         *
-         * Ahora:
-         *
-         * ●--●--●--●--●--●--●--●--●--●--●
-         *
-         * aproximadamente cada 0.40 bloques.
+         * Normalizar ruta para que los puntos estén
+         * distribuidos aproximadamente cada 0.40 bloques.
          */
         List<RoutePoint> normalized =
                 resampleClosedPath(
@@ -449,7 +478,7 @@ public class CropRouteClient implements ClientModInitializer {
 
     /*
      * ============================================================
-     * REPRODUCCIÓN
+     * INICIAR RUTA
      * ============================================================
      */
 
@@ -460,6 +489,9 @@ public class CropRouteClient implements ClientModInitializer {
         RouteData route =
                 RouteManager.getSelectedRoute();
 
+        /*
+         * No hay ruta seleccionada.
+         */
         if (route == null) {
 
             showActionBar(
@@ -469,6 +501,9 @@ public class CropRouteClient implements ClientModInitializer {
             return;
         }
 
+        /*
+         * Ruta inválida.
+         */
         if (route.points == null ||
                 route.points.size() < 4) {
 
@@ -479,6 +514,9 @@ public class CropRouteClient implements ClientModInitializer {
             return;
         }
 
+        /*
+         * Comprobar dimensión.
+         */
         String dimension =
                 currentDimension(client);
 
@@ -493,6 +531,9 @@ public class CropRouteClient implements ClientModInitializer {
             return;
         }
 
+        /*
+         * Cancelar grabación actual.
+         */
         if (recording) {
 
             recording = false;
@@ -500,12 +541,7 @@ public class CropRouteClient implements ClientModInitializer {
         }
 
         /*
-         * ========================================================
-         * COMPATIBILIDAD CON RUTAS V1
-         * ========================================================
-         *
-         * Si detectamos huecos grandes entre puntos, reconstruimos
-         * automáticamente la ruta vieja.
+         * Optimizar rutas antiguas si tienen huecos grandes.
          */
         if (largestSegmentGap(route.points)
                 > OLD_ROUTE_GAP_LIMIT) {
@@ -524,11 +560,7 @@ public class CropRouteClient implements ClientModInitializer {
         }
 
         /*
-         * Encontramos dónde estamos realmente sobre la ruta.
-         *
-         * NO buscamos solamente el waypoint más cercano.
-         *
-         * Buscamos el punto más cercano SOBRE UN SEGMENTO.
+         * Encontrar el segmento de ruta más cercano.
          */
         PathProjection nearest =
                 findNearestProjectionGlobal(
@@ -543,13 +575,35 @@ public class CropRouteClient implements ClientModInitializer {
         progressT =
                 nearest.t;
 
+        /*
+         * Activar reproducción.
+         */
         playing = true;
 
+        /*
+         * ========================================================
+         * NUEVO TEMPORIZADOR DE 3 HORAS
+         * ========================================================
+         *
+         * Cada vez que presionas O para iniciar,
+         * comienza un periodo nuevo completo de 3 horas.
+         */
+        routeEndTime =
+                System.currentTimeMillis()
+                        + MAX_ROUTE_TIME_MS;
+
         showActionBar(
-                "Ruta ACTIVADA V2: "
+                "Ruta ACTIVADA: "
                         + route.name
+                        + " | máximo 3 horas"
         );
     }
+
+    /*
+     * ============================================================
+     * DETENER RUTA
+     * ============================================================
+     */
 
     private void stopPlayback(
             MinecraftClient client,
@@ -563,6 +617,14 @@ public class CropRouteClient implements ClientModInitializer {
 
         progressT = 0.0D;
 
+        /*
+         * Limpiar temporizador.
+         */
+        routeEndTime = 0L;
+
+        /*
+         * Soltar entradas.
+         */
         releaseAutomationKeys(client);
 
         if (showMessage && wasPlaying) {
@@ -575,7 +637,7 @@ public class CropRouteClient implements ClientModInitializer {
 
     /*
      * ============================================================
-     * SEGUIDOR DE RUTA V2
+     * EJECUTAR RUTA
      * ============================================================
      */
 
@@ -583,9 +645,32 @@ public class CropRouteClient implements ClientModInitializer {
             MinecraftClient client
     ) {
 
+        /*
+         * ========================================================
+         * COMPROBAR LÍMITE DE 3 HORAS
+         * ========================================================
+         */
+        if (routeEndTime > 0L &&
+                System.currentTimeMillis() >= routeEndTime) {
+
+            stopPlayback(
+                    client,
+                    false
+            );
+
+            showActionBar(
+                    "Ruta detenida: se cumplieron las 3 horas"
+            );
+
+            return;
+        }
+
         RouteData route =
                 RouteManager.getSelectedRoute();
 
+        /*
+         * Ruta eliminada/no disponible.
+         */
         if (route == null ||
                 route.points == null ||
                 route.points.size() < 4) {
@@ -602,6 +687,9 @@ public class CropRouteClient implements ClientModInitializer {
             return;
         }
 
+        /*
+         * Cambiaste de dimensión.
+         */
         if (route.dimension != null &&
                 !route.dimension.isBlank() &&
                 !currentDimension(client)
@@ -621,14 +709,10 @@ public class CropRouteClient implements ClientModInitializer {
 
         /*
          * ========================================================
-         * MUY IMPORTANTE
+         * MANTENER PRESIONADAS LAS ENTRADAS
          * ========================================================
          *
-         * ESTO SE EJECUTA CADA TICK.
-         *
-         * W = PRESIONADA
-         * Sprint = PRESIONADO
-         * clic izquierdo = PRESIONADO
+         * Esto se ejecuta cada tick.
          */
         client.options.forwardKey.setPressed(true);
 
@@ -638,6 +722,9 @@ public class CropRouteClient implements ClientModInitializer {
 
         client.player.setSprinting(true);
 
+        /*
+         * Posición actual.
+         */
         double playerX =
                 client.player.getX();
 
@@ -645,17 +732,7 @@ public class CropRouteClient implements ClientModInitializer {
                 client.player.getZ();
 
         /*
-         * Ahora buscamos el mejor segmento HACIA ADELANTE.
-         *
-         * Si volamos rápido y sobrepasamos:
-         *
-         * punto 50
-         * punto 51
-         * punto 52
-         *
-         * podemos saltar directamente al segmento 52-53.
-         *
-         * NO intenta regresar al 50.
+         * Buscar el mejor segmento hacia delante.
          */
         PathProjection projection =
                 findBestForwardProjection(
@@ -666,12 +743,12 @@ public class CropRouteClient implements ClientModInitializer {
                 );
 
         /*
-         * Si por alguna razón quedamos extremadamente lejos,
-         * hacemos recuperación de emergencia.
+         * Si estamos extremadamente lejos,
+         * recuperar usando toda la ruta.
          */
         if (projection.distanceSquared >
-                EMERGENCY_RECOVERY_DISTANCE *
-                        EMERGENCY_RECOVERY_DISTANCE) {
+                EMERGENCY_RECOVERY_DISTANCE
+                        * EMERGENCY_RECOVERY_DISTANCE) {
 
             projection =
                     findNearestProjectionGlobal(
@@ -688,8 +765,7 @@ public class CropRouteClient implements ClientModInitializer {
                 projection.t;
 
         /*
-         * Si llegamos prácticamente al final del segmento,
-         * pasamos al siguiente inmediatamente.
+         * Avanzar al siguiente segmento.
          */
         if (progressT >= 0.985D) {
 
@@ -697,13 +773,12 @@ public class CropRouteClient implements ClientModInitializer {
                     (progressSegment + 1)
                             % route.points.size();
 
-            progressT = 0.0D;
+            progressT =
+                    0.0D;
         }
 
         /*
-         * ========================================================
-         * VELOCIDAD ACTUAL
-         * ========================================================
+         * Velocidad horizontal.
          */
         double velocityX =
                 client.player.getVelocity().x;
@@ -713,28 +788,18 @@ public class CropRouteClient implements ClientModInitializer {
 
         double horizontalSpeed =
                 Math.sqrt(
-                        velocityX * velocityX +
-                        velocityZ * velocityZ
+                        velocityX * velocityX
+                                + velocityZ * velocityZ
                 );
 
         /*
-         * ========================================================
-         * LOOK-AHEAD DINÁMICO
-         * ========================================================
-         *
-         * Caminando:
-         *
-         * objetivo ~2-3 bloques adelante
-         *
-         * Muy rápido:
-         *
-         * objetivo hasta ~8 bloques adelante
+         * Look-ahead dinámico.
          */
         double lookAhead =
                 clamp(
-                        MIN_LOOKAHEAD +
-                                horizontalSpeed *
-                                        LOOKAHEAD_SPEED_MULTIPLIER,
+                        MIN_LOOKAHEAD
+                                + horizontalSpeed
+                                * LOOKAHEAD_SPEED_MULTIPLIER,
 
                         MIN_LOOKAHEAD,
 
@@ -742,8 +807,7 @@ public class CropRouteClient implements ClientModInitializer {
                 );
 
         /*
-         * Buscamos un punto REAL sobre la ruta varios bloques
-         * hacia adelante.
+         * Buscar objetivo varios bloques más adelante.
          */
         RoutePoint target =
                 pointAheadOnRoute(
@@ -754,7 +818,7 @@ public class CropRouteClient implements ClientModInitializer {
                 );
 
         /*
-         * Giramos hacia ese punto.
+         * Girar hacia el objetivo.
          */
         aimSmoothlyAt(
                 client,
@@ -765,7 +829,7 @@ public class CropRouteClient implements ClientModInitializer {
 
     /*
      * ============================================================
-     * GIRO
+     * GIRO AUTOMÁTICO
      * ============================================================
      */
 
@@ -776,12 +840,12 @@ public class CropRouteClient implements ClientModInitializer {
     ) {
 
         double dx =
-                target.x -
-                        client.player.getX();
+                target.x
+                        - client.player.getX();
 
         double dz =
-                target.z -
-                        client.player.getZ();
+                target.z
+                        - client.player.getZ();
 
         if (dx * dx + dz * dz
                 < 0.0001D) {
@@ -789,11 +853,6 @@ public class CropRouteClient implements ClientModInitializer {
             return;
         }
 
-        /*
-         * Minecraft:
-         *
-         * yaw 0 = +Z
-         */
         float desiredYaw =
                 (float) Math.toDegrees(
                         Math.atan2(
@@ -807,19 +866,18 @@ public class CropRouteClient implements ClientModInitializer {
 
         float yawError =
                 MathHelper.wrapDegrees(
-                        desiredYaw -
-                                currentYaw
+                        desiredYaw
+                                - currentYaw
                 );
 
         /*
-         * Cuanto más rápido vamos,
-         * más capacidad de giro permitimos.
+         * Giro dinámico según velocidad.
          */
         float maxYawThisTick =
                 (float) clamp(
-                        BASE_MAX_YAW_PER_TICK +
-                                horizontalSpeed *
-                                        YAW_SPEED_MULTIPLIER,
+                        BASE_MAX_YAW_PER_TICK
+                                + horizontalSpeed
+                                * YAW_SPEED_MULTIPLIER,
 
                         BASE_MAX_YAW_PER_TICK,
 
@@ -834,8 +892,8 @@ public class CropRouteClient implements ClientModInitializer {
                 );
 
         float newYaw =
-                currentYaw +
-                        yawStep;
+                currentYaw
+                        + yawStep;
 
         client.player.setYaw(
                 newYaw
@@ -846,16 +904,13 @@ public class CropRouteClient implements ClientModInitializer {
         );
 
         /*
-         * NO modificamos pitch.
-         *
-         * Tú puedes dejar la mira mirando hacia abajo
-         * para romper cultivos.
+         * El pitch no se modifica.
          */
     }
 
     /*
      * ============================================================
-     * PROYECCIÓN SOBRE LA RUTA
+     * BUSCAR SEGMENTO HACIA DELANTE
      * ============================================================
      */
 
@@ -881,19 +936,6 @@ public class CropRouteClient implements ClientModInitializer {
         double bestScore =
                 Double.MAX_VALUE;
 
-        /*
-         * Solo:
-         *
-         * segmento actual
-         * segmento + 1
-         * segmento + 2
-         * ...
-         *
-         * NUNCA:
-         *
-         * segmento - 1
-         * segmento - 2
-         */
         for (int offset = 0;
              offset < segmentsToSearch;
              offset++) {
@@ -911,15 +953,12 @@ public class CropRouteClient implements ClientModInitializer {
                     );
 
             /*
-             * Pequeña penalización por saltar demasiados
-             * segmentos de golpe.
-             *
-             * Pero si realmente los sobrepasaste rápidamente,
-             * la distancia gana y el progreso avanza.
+             * Pequeña penalización por saltar
+             * demasiados segmentos.
              */
             double score =
-                    candidate.distanceSquared +
-                            offset * 0.003D;
+                    candidate.distanceSquared
+                            + offset * 0.003D;
 
             if (score < bestScore) {
 
@@ -945,8 +984,11 @@ public class CropRouteClient implements ClientModInitializer {
     }
 
     /*
-     * Para comenzar una ruta o recuperación extrema.
+     * ============================================================
+     * PROYECCIÓN GLOBAL MÁS CERCANA
+     * ============================================================
      */
+
     private PathProjection findNearestProjectionGlobal(
             RouteData route,
             double playerX,
@@ -995,13 +1037,11 @@ public class CropRouteClient implements ClientModInitializer {
     }
 
     /*
-     * Encuentra matemáticamente el punto más cercano
-     * dentro de:
-     *
-     * A ---------------- B
-     *
-     * respecto al jugador.
+     * ============================================================
+     * PROYECTAR JUGADOR SOBRE SEGMENTO
+     * ============================================================
      */
+
     private PathProjection projectOntoSegment(
             RouteData route,
             int segmentIndex,
@@ -1030,8 +1070,8 @@ public class CropRouteClient implements ClientModInitializer {
                 b.z - a.z;
 
         double segmentLengthSquared =
-                segmentX * segmentX +
-                        segmentZ * segmentZ;
+                segmentX * segmentX
+                        + segmentZ * segmentZ;
 
         double t;
 
@@ -1044,14 +1084,13 @@ public class CropRouteClient implements ClientModInitializer {
 
             t =
                     (
-                            (playerX - a.x) *
-                                    segmentX
+                            (playerX - a.x)
+                                    * segmentX
                                     +
-                                    (playerZ - a.z) *
-                                            segmentZ
+                                    (playerZ - a.z)
+                                            * segmentZ
                     )
-                            /
-                            segmentLengthSquared;
+                            / segmentLengthSquared;
 
             t =
                     clamp(
@@ -1062,24 +1101,24 @@ public class CropRouteClient implements ClientModInitializer {
         }
 
         double projectionX =
-                a.x +
-                        segmentX * t;
+                a.x
+                        + segmentX * t;
 
         double projectionZ =
-                a.z +
-                        segmentZ * t;
+                a.z
+                        + segmentZ * t;
 
         double dx =
-                playerX -
-                        projectionX;
+                playerX
+                        - projectionX;
 
         double dz =
-                playerZ -
-                        projectionZ;
+                playerZ
+                        - projectionZ;
 
         double distanceSquared =
-                dx * dx +
-                        dz * dz;
+                dx * dx
+                        + dz * dz;
 
         return new PathProjection(
                 segmentIndex,
@@ -1090,7 +1129,7 @@ public class CropRouteClient implements ClientModInitializer {
 
     /*
      * ============================================================
-     * PURE PURSUIT / LOOK-AHEAD
+     * LOOK-AHEAD SOBRE LA RUTA
      * ============================================================
      */
 
@@ -1117,11 +1156,6 @@ public class CropRouteClient implements ClientModInitializer {
         double remaining =
                 distanceAhead;
 
-        /*
-         * Recorremos los segmentos hacia delante hasta encontrar
-         * exactamente el punto situado "distanceAhead" bloques
-         * más adelante.
-         */
         for (int guard = 0;
              guard < size + 2;
              guard++) {
@@ -1146,13 +1180,10 @@ public class CropRouteClient implements ClientModInitializer {
             double dz =
                     b.z - a.z;
 
-            /*
-             * Para conducción utilizamos principalmente X/Z.
-             */
             double segmentLength =
                     Math.sqrt(
-                            dx * dx +
-                                    dz * dz
+                            dx * dx
+                                    + dz * dz
                     );
 
             if (segmentLength
@@ -1162,32 +1193,33 @@ public class CropRouteClient implements ClientModInitializer {
                         (segment + 1)
                                 % size;
 
-                t = 0.0D;
+                t =
+                        0.0D;
 
                 continue;
             }
 
             double availableDistance =
-                    segmentLength *
-                            (1.0D - t);
+                    segmentLength
+                            * (1.0D - t);
 
             if (remaining
                     <= availableDistance) {
 
                 double finalT =
-                        t +
-                                remaining /
-                                        segmentLength;
+                        t
+                                + remaining
+                                / segmentLength;
 
                 return new RoutePoint(
-                        a.x +
-                                dx * finalT,
+                        a.x
+                                + dx * finalT,
 
-                        a.y +
-                                dy * finalT,
+                        a.y
+                                + dy * finalT,
 
-                        a.z +
-                                dz * finalT
+                        a.z
+                                + dz * finalT
                 );
             }
 
@@ -1198,12 +1230,10 @@ public class CropRouteClient implements ClientModInitializer {
                     (segment + 1)
                             % size;
 
-            t = 0.0D;
+            t =
+                    0.0D;
         }
 
-        /*
-         * Fallback.
-         */
         return route.points.get(
                 (startSegment + 1)
                         % size
@@ -1212,7 +1242,7 @@ public class CropRouteClient implements ClientModInitializer {
 
     /*
      * ============================================================
-     * RECONSTRUCCIÓN DE RUTA
+     * NORMALIZAR RUTA
      * ============================================================
      */
 
@@ -1228,7 +1258,10 @@ public class CropRouteClient implements ClientModInitializer {
                 original.size() < 2) {
 
             if (original != null) {
-                result.addAll(original);
+
+                result.addAll(
+                        original
+                );
             }
 
             return result;
@@ -1237,10 +1270,6 @@ public class CropRouteClient implements ClientModInitializer {
         int size =
                 original.size();
 
-        /*
-         * Cada elemento representa la longitud horizontal
-         * del segmento i -> i+1.
-         */
         double[] segmentLengths =
                 new double[size];
 
@@ -1268,8 +1297,8 @@ public class CropRouteClient implements ClientModInitializer {
 
             double length =
                     Math.sqrt(
-                            dx * dx +
-                                    dz * dz
+                            dx * dx
+                                    + dz * dz
                     );
 
             segmentLengths[i] =
@@ -1289,25 +1318,18 @@ public class CropRouteClient implements ClientModInitializer {
             return result;
         }
 
-        /*
-         * Número total de puntos finales.
-         */
         int sampleCount =
                 Math.max(
                         4,
                         (int) Math.round(
-                                totalLength /
-                                        spacing
+                                totalLength
+                                        / spacing
                         )
                 );
 
-        /*
-         * De esta forma todos quedan distribuidos
-         * uniformemente alrededor del circuito.
-         */
         double actualSpacing =
-                totalLength /
-                        sampleCount;
+                totalLength
+                        / sampleCount;
 
         int currentSegment =
                 0;
@@ -1320,8 +1342,8 @@ public class CropRouteClient implements ClientModInitializer {
              sample++) {
 
             double wantedDistance =
-                    sample *
-                            actualSpacing;
+                    sample
+                            * actualSpacing;
 
             while (
                     currentSegment
@@ -1360,44 +1382,48 @@ public class CropRouteClient implements ClientModInitializer {
                             currentSegment
                     ];
 
-            double t;
+            double interpolation;
 
             if (length
                     < 0.00000001D) {
 
-                t = 0.0D;
+                interpolation =
+                        0.0D;
 
             } else {
 
-                t =
+                interpolation =
                         (
-                                wantedDistance -
+                                wantedDistance
+                                        -
                                         currentSegmentStartDistance
                         )
-                                /
-                                length;
+                                / length;
             }
 
-            t =
+            interpolation =
                     clamp(
-                            t,
+                            interpolation,
                             0.0D,
                             1.0D
                     );
 
             result.add(
                     new RoutePoint(
-                            a.x +
-                                    (b.x - a.x) *
-                                            t,
+                            a.x
+                                    +
+                                    (b.x - a.x)
+                                            * interpolation,
 
-                            a.y +
-                                    (b.y - a.y) *
-                                            t,
+                            a.y
+                                    +
+                                    (b.y - a.y)
+                                            * interpolation,
 
-                            a.z +
-                                    (b.z - a.z) *
-                                            t
+                            a.z
+                                    +
+                                    (b.z - a.z)
+                                            * interpolation
                     )
             );
         }
@@ -1406,11 +1432,11 @@ public class CropRouteClient implements ClientModInitializer {
     }
 
     /*
-     * Busca el hueco más grande entre puntos.
-     *
-     * Se utiliza para saber si una ruta V1 necesita
-     * optimización.
+     * ============================================================
+     * DETECTAR MAYOR HUECO
+     * ============================================================
      */
+
     private double largestSegmentGap(
             List<RoutePoint> points
     ) {
@@ -1445,8 +1471,8 @@ public class CropRouteClient implements ClientModInitializer {
 
             double distance =
                     Math.sqrt(
-                            dx * dx +
-                                    dz * dz
+                            dx * dx
+                                    + dz * dz
                     );
 
             if (distance > largest) {
@@ -1461,7 +1487,7 @@ public class CropRouteClient implements ClientModInitializer {
 
     /*
      * ============================================================
-     * UTILIDADES
+     * DISTANCIA 3D
      * ============================================================
      */
 
@@ -1479,10 +1505,16 @@ public class CropRouteClient implements ClientModInitializer {
         double dz =
                 a.z - b.z;
 
-        return dx * dx +
-                dy * dy +
-                dz * dz;
+        return dx * dx
+                + dy * dy
+                + dz * dz;
     }
+
+    /*
+     * ============================================================
+     * DIMENSIÓN
+     * ============================================================
+     */
 
     private static String currentDimension(
             MinecraftClient client
@@ -1495,22 +1527,35 @@ public class CropRouteClient implements ClientModInitializer {
     }
 
     /*
-     * Suelta todo lo que el mod estaba manteniendo.
+     * ============================================================
+     * SOLTAR TECLAS
+     * ============================================================
      */
+
     private static void releaseAutomationKeys(
             MinecraftClient client
     ) {
 
         if (client == null) {
+
             return;
         }
 
+        /*
+         * W.
+         */
         client.options.forwardKey
                 .setPressed(false);
 
+        /*
+         * Sprint.
+         */
         client.options.sprintKey
                 .setPressed(false);
 
+        /*
+         * Clic izquierdo.
+         */
         client.options.attackKey
                 .setPressed(false);
 
@@ -1523,8 +1568,11 @@ public class CropRouteClient implements ClientModInitializer {
     }
 
     /*
-     * Mensaje encima de la hotbar.
+     * ============================================================
+     * MENSAJE SOBRE HOTBAR
+     * ============================================================
      */
+
     public static void showActionBar(
             String message
     ) {
@@ -1540,6 +1588,12 @@ public class CropRouteClient implements ClientModInitializer {
             );
         }
     }
+
+    /*
+     * ============================================================
+     * CLAMP
+     * ============================================================
+     */
 
     private static double clamp(
             double value,
@@ -1558,7 +1612,7 @@ public class CropRouteClient implements ClientModInitializer {
 
     /*
      * ============================================================
-     * RESULTADO DE PROYECCIÓN
+     * PROYECCIÓN
      * ============================================================
      */
 
