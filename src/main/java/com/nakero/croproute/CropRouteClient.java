@@ -3,6 +3,7 @@ package com.nakero.croproute;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
+import net.fabricmc.fabric.api.client.message.v1.ClientReceiveMessageEvents;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.option.KeyBinding;
 import net.minecraft.client.util.InputUtil;
@@ -91,6 +92,26 @@ public class CropRouteClient implements ClientModInitializer {
     private static long routeEndTime = 0L;
 
     /*
+     * ============================================================
+     * PAUSA AUTOMÁTICA - COMPETENCIA DE COSECHA
+     * ============================================================
+     */
+
+    private static boolean waitingEventPause = false;
+
+    private static boolean eventPaused = false;
+
+    private static long eventDetectedTime = 0L;
+
+    private static long eventPauseTime = 0L;
+
+    private static final long EVENT_WAIT_TIME =
+            5L * 60L * 1000L;
+
+    private static final long EVENT_PAUSE_DURATION =
+            23L * 60L * 1000L;
+
+    /*
      * Keybinds.
      */
     private static KeyBinding recordKey;
@@ -175,6 +196,37 @@ public class CropRouteClient implements ClientModInitializer {
         ClientTickEvents.END_CLIENT_TICK.register(
                 this::onEndTick
         );
+
+        /*
+         * Detector del chat del evento.
+         */
+        ClientReceiveMessageEvents.GAME.register(
+                (message, overlay) -> {
+
+                    String chat =
+                            message.getString()
+                                    .toUpperCase();
+
+                    if (chat.contains(
+                            "COMPETENCIA DE COSECHA"
+                    )) {
+
+                        if (playing &&
+                                !waitingEventPause &&
+                                !eventPaused) {
+
+                            waitingEventPause = true;
+
+                            eventDetectedTime =
+                                    System.currentTimeMillis();
+
+                            showActionBar(
+                                    "Competencia de cosecha detectada: esperando 5 minutos"
+                            );
+                        }
+                    }
+                }
+        );
     }
 
     /*
@@ -206,6 +258,8 @@ public class CropRouteClient implements ClientModInitializer {
         }
 
         handleKeys(client);
+
+        handleEventPause(client);
 
         /*
          * Continuar grabando.
@@ -245,6 +299,63 @@ public class CropRouteClient implements ClientModInitializer {
      * CONTROLES
      * ============================================================
      */
+
+
+    /*
+     * ============================================================
+     * CONTROL DE PAUSA AUTOMÁTICA
+     * ============================================================
+     */
+
+    private void handleEventPause(
+            MinecraftClient client
+    ) {
+
+        if (waitingEventPause) {
+
+            if (System.currentTimeMillis()
+                    >= eventDetectedTime + EVENT_WAIT_TIME) {
+
+                waitingEventPause = false;
+
+                eventPaused = true;
+
+                eventPauseTime =
+                        System.currentTimeMillis();
+
+                releaseAutomationKeys(client);
+
+                showActionBar(
+                        "Ruta pausada durante 23 minutos"
+                );
+            }
+
+            return;
+        }
+
+
+        if (eventPaused) {
+
+            if (System.currentTimeMillis()
+                    >= eventPauseTime + EVENT_PAUSE_DURATION) {
+
+                eventPaused = false;
+
+                showActionBar(
+                        "Ruta reanudada automáticamente"
+                );
+
+                client.options.forwardKey.setPressed(true);
+                client.options.sprintKey.setPressed(true);
+                client.options.attackKey.setPressed(true);
+
+                if (client.player != null) {
+                    client.player.setSprinting(true);
+                }
+            }
+        }
+    }
+
 
     private void handleKeys(MinecraftClient client) {
 
