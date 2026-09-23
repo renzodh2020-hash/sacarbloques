@@ -347,13 +347,7 @@ public class CropRouteClient implements ClientModInitializer {
                         "Ruta reanudada automáticamente"
                 );
 
-                client.options.forwardKey.setPressed(true);
-                client.options.sprintKey.setPressed(true);
-                client.options.attackKey.setPressed(true);
-
-                if (client.player != null) {
-                    client.player.setSprinting(true);
-                }
+                startPlayback(client);
             }
         }
     }
