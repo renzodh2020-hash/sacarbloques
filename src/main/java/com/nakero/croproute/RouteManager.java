@@ -21,6 +21,23 @@ public final class RouteManager {
 
     private static RouteStore store = new RouteStore();
 
+    private static int routeTimerHours = 3;
+    private static int routeTimerMinutes = 0;
+
+    public static int getRouteTimerHours() {
+        return routeTimerHours;
+    }
+
+    public static int getRouteTimerMinutes() {
+        return routeTimerMinutes;
+    }
+
+    public static void setRouteTimer(int hours, int minutes) {
+        routeTimerHours = Math.max(0, hours);
+        routeTimerMinutes = Math.max(0, Math.min(59, minutes));
+        save();
+    }
+
     private RouteManager() {
     }
 
