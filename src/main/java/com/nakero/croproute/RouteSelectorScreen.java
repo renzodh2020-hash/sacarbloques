@@ -3,8 +3,8 @@ package com.nakero.croproute;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.widget.ButtonWidget;
-import net.minecraft.text.Text;\n\nimport net.minecraft.client.gui.widget.TextFieldWidget;
-
+import net.minecraft.text.Text;
+import net.minecraft.client.gui.widget.TextFieldWidget;
 import java.util.List;
 
 public class RouteSelectorScreen extends Screen {
