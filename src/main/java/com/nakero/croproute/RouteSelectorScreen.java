@@ -158,4 +158,101 @@ public class RouteSelectorScreen extends Screen {
 
         super.render(context, mouseX, mouseY, delta);
     }
+
+    private static class TimerConfigScreen extends Screen {
+
+        private TextFieldWidget hoursField;
+        private TextFieldWidget minutesField;
+
+        protected TimerConfigScreen() {
+            super(Text.literal("Configuración del temporizador"));
+        }
+
+        @Override
+        protected void init() {
+
+            hoursField = new TextFieldWidget(
+                    textRenderer,
+                    width / 2 - 60,
+                    70,
+                    120,
+                    20,
+                    Text.literal("Horas")
+            );
+
+            minutesField = new TextFieldWidget(
+                    textRenderer,
+                    width / 2 - 60,
+                    105,
+                    120,
+                    20,
+                    Text.literal("Minutos")
+            );
+
+            hoursField.setText(
+                    String.valueOf(RouteManager.getRouteTimerHours())
+            );
+
+            minutesField.setText(
+                    String.valueOf(RouteManager.getRouteTimerMinutes())
+            );
+
+            addDrawableChild(hoursField);
+            addDrawableChild(minutesField);
+
+            addDrawableChild(
+                    ButtonWidget.builder(
+                            Text.literal("Guardar"),
+                            button -> {
+
+                                try {
+                                    int hours = Integer.parseInt(hoursField.getText());
+                                    int minutes = Integer.parseInt(minutesField.getText());
+
+                                    RouteManager.setRouteTimer(hours, minutes);
+
+                                    CropRouteClient.showActionBar(
+                                            "Temporizador guardado"
+                                    );
+
+                                } catch (Exception ignored) {
+                                    CropRouteClient.showActionBar(
+                                            "Valores incorrectos"
+                                    );
+                                }
+
+                                if (client != null) {
+                                    client.setScreen(
+                                            new RouteSelectorScreen()
+                                    );
+                                }
+                            }
+                    ).dimensions(
+                            width / 2 - 60,
+                            140,
+                            120,
+                            20
+                    ).build()
+            );
+
+            addDrawableChild(
+                    ButtonWidget.builder(
+                            Text.literal("Volver"),
+                            button -> {
+                                if (client != null) {
+                                    client.setScreen(
+                                            new RouteSelectorScreen()
+                                    );
+                                }
+                            }
+                    ).dimensions(
+                            width / 2 - 60,
+                            170,
+                            120,
+                            20
+                    ).build()
+            );
+        }
+    }
+
 }
