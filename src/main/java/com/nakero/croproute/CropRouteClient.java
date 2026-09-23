@@ -83,8 +83,10 @@ public class CropRouteClient implements ClientModInitializer {
      * = 10,800 segundos
      * = 10,800,000 milisegundos
      */
-    private static final long MAX_ROUTE_TIME_MS =
-            3L * 60L * 60L * 1000L;
+    private static long getMaxRouteTimeMs() {
+        return ((long) RouteManager.getRouteTimerHours() * 60L * 60L * 1000L)
+                + ((long) RouteManager.getRouteTimerMinutes() * 60L * 1000L);
+    }
 
     /*
      * Momento exacto en el que debe finalizar la ruta actual.
@@ -272,7 +274,7 @@ public class CropRouteClient implements ClientModInitializer {
         /*
          * Si no estamos reproduciendo, no hacemos nada más.
          */
-        if (!playing) {
+        if (!playing || eventPaused || waitingEventPause) {
 
             return;
         }
@@ -323,10 +325,10 @@ public class CropRouteClient implements ClientModInitializer {
                 eventPauseTime =
                         System.currentTimeMillis();
 
-                releaseAutomationKeys(client);
+                stopPlayback(client, false);
 
                 showActionBar(
-                        "Ruta pausada durante 23 minutos"
+                        "Ruta detenida por Competencia de Cosecha"
                 );
             }
 
@@ -700,8 +702,7 @@ public class CropRouteClient implements ClientModInitializer {
          * comienza un periodo nuevo completo de 3 horas.
          */
         routeEndTime =
-                System.currentTimeMillis()
-                        + MAX_ROUTE_TIME_MS;
+                System.currentTimeMillis() + getMaxRouteTimeMs();
 
         showActionBar(
                 "Ruta ACTIVADA: "
