@@ -1,492 +1,161 @@
 package com.nakero.croproute;
 
-import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.widget.ButtonWidget;
-import net.minecraft.client.gui.widget.TextFieldWidget;
 import net.minecraft.text.Text;
+import net.minecraft.client.gui.widget.TextFieldWidget;
 
 import java.util.List;
 
 public class RouteSelectorScreen extends Screen {
-
-    private final MinecraftClient client;
-
-    private int selectedIndex = -1;
+    private static final int ROUTES_PER_PAGE = 6;
+    private int page;
 
     public RouteSelectorScreen() {
-        super(Text.literal("Rutas guardadas"));
-        this.client = MinecraftClient.getInstance();
+        this(0);
     }
 
+    private RouteSelectorScreen(int page) {
+        super(Text.literal("Rutas guardadas"));
+        this.page = Math.max(0, page);
+    }
 
     @Override
     protected void init() {
+        List<RouteData> routes = RouteManager.getRoutesNewestFirst();
+        int maxPage = Math.max(0, (routes.size() - 1) / ROUTES_PER_PAGE);
+        page = Math.min(page, maxPage);
 
-        List<RouteData> routes =
-                RouteManager.getRoutes();
+        int panelWidth = Math.min(330, width - 30);
+        int x = (width - panelWidth) / 2;
+        int startY = Math.max(50, height / 2 - 92);
 
+        int from = page * ROUTES_PER_PAGE;
+        int to = Math.min(routes.size(), from + ROUTES_PER_PAGE);
 
-        int y = 40;
+        for (int i = from; i < to; i++) {
+            RouteData route = routes.get(i);
+            RouteData selected = RouteManager.getSelectedRoute();
+            boolean isSelected = selected != null && selected.id.equals(route.id);
 
+            String label = (isSelected ? "▶ " : "")
+                    + route.name
+                    + "  [" + route.points.size() + " pts]";
 
-        for (int i = 0; i < routes.size(); i++) {
+            int row = i - from;
 
-            final int index = i;
-
-            addDrawableChild(
-                    ButtonWidget.builder(
-                            Text.literal(
-                                    routes.get(i).name
-                            ),
-
-                            button -> {
-
-                                selectedIndex = index;
-
-                                RouteManager.setSelectedRoute(
-                                        routes.get(index)
-                                );
-
-                                CropRouteClient.showActionBar(
-                                        "Ruta seleccionada: "
-                                                + routes.get(index).name
-                                );
-                            }
-
-                    ).dimensions(
-                            width / 2 - 100,
-                            y,
-                            200,
-                            20
-
-                    ).build()
-            );
-
-
-            y += 25;
+            addDrawableChild(ButtonWidget.builder(
+                    Text.literal(label),
+                    button -> {
+                        RouteManager.select(route.id);
+                        CropRouteClient.showActionBar("Ruta seleccionada: " + route.name);
+                        if (client != null) {
+                            client.setScreen(null);
+                        }
+                    }
+            ).dimensions(x, startY + row * 24, panelWidth, 20).build());
         }
 
+        int bottomY = startY + ROUTES_PER_PAGE * 24 + 7;
 
-
-        /*
-         * Configuración del temporizador
-         */
-
-        addDrawableChild(
-
-                ButtonWidget.builder(
-
-                        Text.literal(
-                                "Configuración temporizador"
-                        ),
-
-                        button -> {
-
-                            if(client != null){
-
-                                client.setScreen(
-                                        new TimerConfigScreen()
-                                );
-
-                            }
-
+        if (page > 0) {
+            addDrawableChild(ButtonWidget.builder(
+                    Text.literal("< Anterior"),
+                    button -> {
+                        if (client != null) {
+                            client.setScreen(new RouteSelectorScreen(page - 1));
                         }
+                    }
+            ).dimensions(x, bottomY, 90, 20).build());
+        }
 
-
-                ).dimensions(
-
-                        width / 2 - 100,
-                        y + 10,
-                        200,
-                        20
-
-                ).build()
-
-        );
-
-
-        /*
-         * Eliminar ruta
-         */
-
-        addDrawableChild(
-
-                ButtonWidget.builder(
-
-                        Text.literal(
-                                "Eliminar seleccionada"
-                        ),
-
-
-                        button -> {
-
-                            if(selectedIndex >= 0){
-
-                                RouteManager.deleteRoute(
-                                        selectedIndex
-                                );
-
-                                if(client != null){
-
-                                    client.setScreen(
-                                            new RouteSelectorScreen()
-                                    );
-
-                                }
-
-                            }
-
+        if (page < maxPage) {
+            addDrawableChild(ButtonWidget.builder(
+                    Text.literal("Siguiente >"),
+                    button -> {
+                        if (client != null) {
+                            client.setScreen(new RouteSelectorScreen(page + 1));
                         }
+                    }
+            ).dimensions(x + panelWidth - 90, bottomY, 90, 20).build());
+        }
 
+        RouteData selected = RouteManager.getSelectedRoute();
+        boolean canDelete = selected != null;
 
-                ).dimensions(
+        ButtonWidget deleteButton = ButtonWidget.builder(
+                Text.literal("Eliminar seleccionada"),
+                button -> {
+                    RouteData current = RouteManager.getSelectedRoute();
+                    if (current != null) {
+                        String deletedName = current.name;
+                        RouteManager.delete(current.id);
+                        CropRouteClient.showActionBar("Ruta eliminada: " + deletedName);
+                        if (client != null) {
+                            client.setScreen(new RouteSelectorScreen(page));
+                        }
+                    }
+                }
+        ).dimensions(x + (panelWidth - 150) / 2, bottomY + 27, 150, 20).build();
+        deleteButton.active = canDelete;
+        addDrawableChild(deleteButton);
 
-                        width / 2 - 100,
-                        y + 40,
-                        200,
-                        20
+        addDrawableChild(ButtonWidget.builder(
+                Text.literal("Configuración temporizador"),
+                button -> {
+                    if (client != null) {
+                        client.setScreen(new TimerConfigScreen());
+                    }
+                }
+        ).dimensions(x + (panelWidth - 180) / 2, bottomY + 54, 180, 20).build());
 
-                ).build()
-
-        );
-
-
-
-        /*
-         * Cerrar
-         */
-
-        addDrawableChild(
-
-                ButtonWidget.builder(
-
-                        Text.literal(
-                                "Cerrar"
-                        ),
-
-                        button -> close()
-
-
-                ).dimensions(
-
-                        width / 2 - 100,
-                        y + 70,
-                        200,
-                        20
-
-                ).build()
-
-        );
-
-
+        addDrawableChild(ButtonWidget.builder(
+                Text.literal("Cerrar"),
+                button -> {
+                    if (client != null) {
+                        client.setScreen(null);
+                    }
+                }
+        ).dimensions(x + (panelWidth - 90) / 2, bottomY + 54, 90, 20).build());
     }
 
-
-
     @Override
-    public void render(
-            DrawContext context,
-            int mouseX,
-            int mouseY,
-            float delta
-    ){
-
-        renderBackground(
-                context
-        );
-
+    public void render(DrawContext context, int mouseX, int mouseY, float delta) {
+        renderBackground(context, mouseX, mouseY, delta);
 
         context.drawCenteredTextWithShadow(
-
                 textRenderer,
-
-                Text.literal(
-                        "Rutas guardadas"
-                ),
-
+                Text.literal("Crop Route — elige una ruta"),
                 width / 2,
-
-                15,
-
+                22,
                 0xFFFFFF
         );
 
+        RouteData selected = RouteManager.getSelectedRoute();
+        String selectedText = selected == null
+                ? "Seleccionada: ninguna"
+                : "Seleccionada: " + selected.name
+                    + " | ~" + Math.round(selected.approximateLength()) + " bloques";
 
-        super.render(
-                context,
-                mouseX,
-                mouseY,
-                delta
+        context.drawCenteredTextWithShadow(
+                textRenderer,
+                Text.literal(selectedText),
+                width / 2,
+                37,
+                0xCFCFCF
         );
 
-    }
-
-
-
-
-
-    /*
-     * ======================================================
-     * CONFIGURACIÓN DEL TEMPORIZADOR
-     * ======================================================
-     */
-
-    private class TimerConfigScreen extends Screen {
-
-
-        private TextFieldWidget hoursField;
-
-        private TextFieldWidget minutesField;
-
-
-
-        protected TimerConfigScreen(){
-
-            super(
-                    Text.literal(
-                            "Temporizador"
-                    )
-            );
-
-        }
-
-
-
-        @Override
-        protected void init(){
-
-
-            hoursField =
-                    new TextFieldWidget(
-
-                            textRenderer,
-
-                            width / 2 - 60,
-
-                            70,
-
-                            120,
-
-                            20,
-
-                            Text.literal(
-                                    "Horas"
-                            )
-
-                    );
-
-
-
-            minutesField =
-                    new TextFieldWidget(
-
-                            textRenderer,
-
-                            width / 2 - 60,
-
-                            110,
-
-                            120,
-
-                            20,
-
-                            Text.literal(
-                                    "Minutos"
-                            )
-
-                    );
-
-
-
-            hoursField.setText(
-
-                    String.valueOf(
-                            RouteManager.getRouteTimerHours()
-                    )
-
-            );
-
-
-            minutesField.setText(
-
-                    String.valueOf(
-                            RouteManager.getRouteTimerMinutes()
-                    )
-
-            );
-
-
-
-            addDrawableChild(
-                    hoursField
-            );
-
-
-            addDrawableChild(
-                    minutesField
-            );
-
-
-
-
-
-            addDrawableChild(
-
-                    ButtonWidget.builder(
-
-                            Text.literal(
-                                    "Guardar"
-                            ),
-
-
-                            button -> {
-
-
-                                try{
-
-
-                                    int hours =
-                                            Integer.parseInt(
-                                                    hoursField.getText()
-                                            );
-
-
-                                    int minutes =
-                                            Integer.parseInt(
-                                                    minutesField.getText()
-                                            );
-
-
-
-                                    RouteManager.setRouteTimer(
-                                            hours,
-                                            minutes
-                                    );
-
-
-                                    CropRouteClient.showActionBar(
-                                            "Temporizador guardado"
-                                    );
-
-
-
-                                    client.setScreen(
-                                            new RouteSelectorScreen()
-                                    );
-
-
-
-                                }catch(Exception e){
-
-
-                                    CropRouteClient.showActionBar(
-                                            "Valores inválidos"
-                                    );
-
-
-                                }
-
-
-
-                            }
-
-
-                    ).dimensions(
-
-                            width / 2 - 60,
-
-                            150,
-
-                            120,
-
-                            20
-
-
-                    ).build()
-
-            );
-
-
-
-            addDrawableChild(
-
-                    ButtonWidget.builder(
-
-                            Text.literal(
-                                    "Volver"
-                            ),
-
-
-                            button ->
-
-                                    client.setScreen(
-                                            new RouteSelectorScreen()
-                                    )
-
-
-                    ).dimensions(
-
-                            width / 2 - 60,
-
-                            180,
-
-                            120,
-
-                            20
-
-
-                    ).build()
-
-            );
-
-
-        }
-
-
-        @Override
-        public void render(
-                DrawContext context,
-                int mouseX,
-                int mouseY,
-                float delta
-        ){
-
-
-            renderBackground(
-                    context
-            );
-
-
+        if (RouteManager.getRoutes().isEmpty()) {
             context.drawCenteredTextWithShadow(
-
                     textRenderer,
-
-                    Text.literal(
-                            "Tiempo de ruta"
-                    ),
-
+                    Text.literal("Todavía no hay rutas. Presiona J en el mundo para grabar una."),
                     width / 2,
-
-                    40,
-
+                    height / 2 - 5,
                     0xFFFFFF
-
             );
-
-
-
-            super.render(
-                    context,
-                    mouseX,
-                    mouseY,
-                    delta
-            );
-
-
         }
 
+        super.render(context, mouseX, mouseY, delta);
     }
-
 }
