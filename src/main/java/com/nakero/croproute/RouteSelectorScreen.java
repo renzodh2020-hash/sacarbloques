@@ -3,7 +3,7 @@ package com.nakero.croproute;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.widget.ButtonWidget;
-import net.minecraft.text.Text;
+import net.minecraft.text.Text;\n\nimport net.minecraft.client.gui.widget.TextFieldWidget;
 
 import java.util.List;
 
@@ -99,6 +99,15 @@ public class RouteSelectorScreen extends Screen {
         ).dimensions(x + (panelWidth - 150) / 2, bottomY + 27, 150, 20).build();
         deleteButton.active = canDelete;
         addDrawableChild(deleteButton);
+
+        addDrawableChild(ButtonWidget.builder(
+                Text.literal("Configuración temporizador"),
+                button -> {
+                    if (client != null) {
+                        client.setScreen(new TimerConfigScreen());
+                    }
+                }
+        ).dimensions(x + (panelWidth - 180) / 2, bottomY + 54, 180, 20).build());
 
         addDrawableChild(ButtonWidget.builder(
                 Text.literal("Cerrar"),
