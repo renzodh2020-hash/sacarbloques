@@ -103,6 +103,8 @@ public class CropRouteClient implements ClientModInitializer {
 
     private static boolean eventPaused = false;
 
+    private static boolean autoResumePending = false;
+
     private static long eventDetectedTime = 0L;
 
     private static long eventPauseTime = 0L;
@@ -111,7 +113,7 @@ public class CropRouteClient implements ClientModInitializer {
             5L * 60L * 1000L;
 
     private static final long EVENT_PAUSE_DURATION =
-            23L * 60L * 1000L;
+            15L * 60L * 1000L;
 
     /*
      * Keybinds.
@@ -274,7 +276,7 @@ public class CropRouteClient implements ClientModInitializer {
         /*
          * Si no estamos reproduciendo, no hacemos nada más.
          */
-        if (!playing || eventPaused || waitingEventPause) {
+        if (!playing) {
 
             return;
         }
@@ -319,39 +321,36 @@ public class CropRouteClient implements ClientModInitializer {
                     >= eventDetectedTime + EVENT_WAIT_TIME) {
 
                 waitingEventPause = false;
-
                 eventPaused = true;
-
-                eventPauseTime =
-                        System.currentTimeMillis();
+                autoResumePending = true;
+                eventPauseTime = System.currentTimeMillis();
 
                 stopPlayback(client, false);
 
                 showActionBar(
-                        "Ruta detenida por Competencia de Cosecha"
+                        "Evento: ruta apagada durante 15 minutos"
                 );
             }
 
             return;
         }
 
-
-        if (eventPaused) {
+        if (eventPaused && autoResumePending) {
 
             if (System.currentTimeMillis()
                     >= eventPauseTime + EVENT_PAUSE_DURATION) {
 
                 eventPaused = false;
-
-                showActionBar(
-                        "Ruta reanudada automáticamente"
-                );
+                autoResumePending = false;
 
                 startPlayback(client);
+
+                showActionBar(
+                        "Evento terminado: ruta reactivada"
+                );
             }
         }
     }
-
 
     private void handleKeys(MinecraftClient client) {
 
@@ -409,6 +408,8 @@ public class CropRouteClient implements ClientModInitializer {
             }
 
             if (playing) {
+
+                autoResumePending = false;
 
                 stopPlayback(
                         client,
@@ -696,12 +697,13 @@ public class CropRouteClient implements ClientModInitializer {
          * comienza un periodo nuevo completo de 3 horas.
          */
         routeEndTime =
-                System.currentTimeMillis() + getMaxRouteTimeMs();
+                System.currentTimeMillis()
+                        + getMaxRouteTimeMs();
 
         showActionBar(
                 "Ruta ACTIVADA: "
                         + route.name
-                        + " | máximo 3 horas"
+                        + " | temporizador configurado"
         );
     }
 
